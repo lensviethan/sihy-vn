@@ -1,3 +1,4 @@
 # sihy-vn
 
-Chuyển hướng mọi đường dẫn của sihy.vn sang https://sihylens.vn (giữ nguyên đường dẫn).
+Bản web SIHY LENS chạy riêng ở tên miền sihy.vn (sao chép từ repo lensviethan/sihy, web chính sihylens.vn).
+Các trang đặt canonical về sihylens.vn để Google không xem là nội dung trùng lặp.
