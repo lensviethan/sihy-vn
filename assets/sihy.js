@@ -4,6 +4,10 @@ var P=window.SIHY_P||{},ZALO='0862626488',MESS='https://m.me/sihylens.vn',KEY='s
 function $(s,r){return (r||document).querySelector(s)}
 function $$(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))}
 function vnd(n){return n.toLocaleString('vi-VN')+'đ'}
+/* kính áp tròng: giá cho 1 chiếc (phụ kiện thì không) */
+function isLens(p){return !!p&&!!p.c&&p.c!=='Phụ kiện'}
+function unit(p){return isLens(p)?'<small class="unit">/1 chiếc</small>':''}
+function line(p,q,o,sum){return '- '+p.n+(o?' ('+o+')':'')+': '+(isLens(p)?q+' chiếc x '+vnd(p.p)+'/chiếc':'x'+q)+' = '+vnd(sum)}
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function load(){try{return JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){return []}}
 function save(c){try{localStorage.setItem(KEY,JSON.stringify(c))}catch(e){}}
@@ -53,7 +57,7 @@ var cd=$('#cart');
 function render(){if(!cd)return;var it=$('.items',cd);
  if(!cart.length){it.innerHTML='<p class="empty">Giỏ hàng đang trống.<br>Chọn mẫu lens bạn thích để thêm vào giỏ.</p>';$('.sum',cd).hidden=true;return}
  $('.sum',cd).hidden=false;
- it.innerHTML=cart.map(function(x,n){var p=P[x.id]||{n:x.id,p:0,i:''};return '<div class="ci"><img src="'+p.i+'" alt=""><div><b>'+esc(p.n)+'</b>'+(x.o?'<small>'+esc(x.o)+'</small><br>':'')+'<small>'+vnd(p.p)+'</small><div class="q"><button data-n="'+n+'" data-cq="-1" aria-label="Giảm">−</button><span>'+x.q+'</span><button data-n="'+n+'" data-cq="1" aria-label="Tăng">+</button></div></div><button class="rm" data-rm="'+n+'">Xóa</button></div>'}).join('');
+ it.innerHTML=cart.map(function(x,n){var p=P[x.id]||{n:x.id,p:0,i:''};return '<div class="ci"><img src="'+p.i+'" alt=""><div><b>'+esc(p.n)+'</b>'+(x.o?'<small>'+esc(x.o)+'</small><br>':'')+'<small>'+vnd(p.p)+(isLens(p)?'/1 chiếc':'')+'</small><div class="q"><button data-n="'+n+'" data-cq="-1" aria-label="Giảm">−</button><span>'+x.q+'</span><button data-n="'+n+'" data-cq="1" aria-label="Tăng">+</button></div></div><button class="rm" data-rm="'+n+'">Xóa</button></div>'}).join('');
  var tt=total();$('#c-sub').textContent=vnd(tt);$('#c-ship').textContent=tt>=300000?'Miễn phí':'Báo khi xác nhận đơn';$('#c-total').textContent=vnd(tt)}
 if(cd){cd.addEventListener('click',function(e){if(e.target===cd||e.target.closest('[data-close]')){cd.hidden=true;return}
  var b=e.target.closest('[data-cq]');if(b){var x=cart[+b.dataset.n];x.q+=+b.dataset.cq;if(x.q<1)cart.splice(+b.dataset.n,1);save(cart);badge();render()}
@@ -67,8 +71,15 @@ function pick(wrap){var q=+(($('.qin',wrap)||{}).value)||1,l=$('.dol',wrap),r=$(
 
 /* gửi đơn: email về SIHY (FormSubmit) + tùy chọn mở Zalo/Messenger */
 var MAIL='https://formsubmit.co/ajax/infor.sihy@gmail.com';
+/* Google Sheet (Apps Script): ghi đơn/lịch vào sheet + gửi email về SIHY; lỗi thì dùng FormSubmit dự phòng */
+var SHEET='https://script.google.com/macros/s/AKfycbzBj5hjIUUc8glg5PvEat9cVU0ByS7rfY7rthDq98O5lCSLQta8GBQsbg797XehxY9_3g/exec';
+function sheet(d){if(!SHEET)return Promise.resolve(false);d.trang=location.href;
+ return fetch(SHEET,{method:'POST',body:JSON.stringify(d)}).then(function(r){return r.json()}).then(function(j){return !!(j&&j.ok)}).catch(function(){return false})}
 function status(box,html,cls){if(!box)return;var st=$('.st',box);if(!st){st=document.createElement('p');st.className='st';box.insertBefore(st,box.firstChild)}st.className='st '+(cls||'');st.innerHTML=html}
-function mail(text,info,form){if(form&&form._sent===text)return Promise.resolve(true);
+function mail(text,info,form,to){if(form&&form._sent===text)return Promise.resolve(true);
+ var tt=(text.match(/Tạm tính: ([^\n]+)/)||[])[1]||'';
+ return sheet({loai:'don',ten:info.ten,sdt:info.sdt,dc:info.dc,noidung:text,tamtinh:tt,kenh:to==='zalo'?'Zalo + web':to==='mess'?'Messenger + web':'Web'}).then(function(ok){if(ok){if(form)form._sent=text;return true}return mailFS(text,info,form)})}
+function mailFS(text,info,form){
  var body={_subject:'Đơn hàng SIHY – '+info.ten+' – '+info.sdt,_template:'box',_captcha:'false','Khách hàng':info.ten,'Số điện thoại':info.sdt,'Địa chỉ':info.dc,'Nội dung đơn':text};
  return fetch(MAIL,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)})
   .then(function(r){return r.json().catch(function(){return{}}).then(function(j){var ok=r.ok&&String(j.success)!=='false';if(ok&&form)form._sent=text;return ok})})
@@ -78,18 +89,18 @@ function send(text,to,box,form,info,after){if(box){$('pre',box).textContent=text
  if(to!=='mail'){try{if(navigator.clipboard)navigator.clipboard.writeText(text).then(function(){toast('Đã sao chép đơn hàng. Dán vào khung chat để gửi.')},function(){})}catch(e){}
   window.open(to==='zalo'?'https://zalo.me/'+ZALO:MESS,'_blank','noopener')}
  status(box,'Đang gửi đơn về SIHY…');
- mail(text,info,form).then(function(ok){btns.forEach(function(b){b.disabled=false});
+ mail(text,info,form,to).then(function(ok){btns.forEach(function(b){b.disabled=false});
   if(ok){status(box,'<b>SIHY đã nhận đơn hàng.</b> Nhân viên sẽ gọi số '+esc(info.sdt)+' để xác nhận trước khi giao.','ok');toast('Đã gửi đơn hàng');if(after)after()}
   else status(box,'Chưa gửi được đơn qua email. Bấm <b>Gửi qua Zalo</b> hoặc gọi <a href="tel:'+ZALO+'">0862 626 488</a> để đặt hàng.','bad')})}
 function info(f){return{ten:f.ten.value.trim(),sdt:f.sdt.value.trim(),dc:f.dc.value.trim()}}
 function cust(f){var l=['Khách: '+f.ten.value,'SĐT: '+f.sdt.value,'Địa chỉ: '+f.dc.value];if(f.dol&&!f.dol.closest('.oform')){var dl=f.dol.value.trim(),dr=f.dor.value.trim();l.push('Độ mắt trái: '+(dl||'chưa ghi'),'Độ mắt phải: '+(dr||'chưa ghi'))}if(f.gc&&f.gc.value)l.push('Ghi chú: '+f.gc.value);return l}
 function quickOrder(f,to){if(!f.reportValidity())return;var id=f.dataset.id,p=P[id],o=pick(f.closest('[data-pd]')||document),tt=p.p*o.q;
  if(f.dol){var dl=f.dol.value.trim(),dr=f.dor.value.trim();if(dl||dr)o.o='Độ cận: mắt trái '+(dl||'chưa ghi')+' / mắt phải '+(dr||'chưa ghi')}
- var l=['ĐƠN HÀNG SIHY LENS','- '+p.n+' x'+o.q+(o.o?' ('+o.o+')':'')+' = '+vnd(tt),'Tạm tính: '+vnd(tt)+(tt>=300000?' (miễn phí ship)':'')].concat(cust(f));
+ var l=['ĐƠN HÀNG SIHY LENS',line(p,o.q,o.o,tt),'Tạm tính: '+vnd(tt)+(tt>=300000?' (miễn phí ship)':'')].concat(cust(f));
  send(l.join('\n'),to,$('.done',f),f,info(f))}
 var fm=$('#c-form');
 function cartOrder(to){if(!fm.reportValidity()||!cart.length)return;var l=['ĐƠN HÀNG SIHY LENS'];
- cart.forEach(function(x){var p=P[x.id]||{n:x.id,p:0};l.push('- '+p.n+' x'+x.q+(x.o?' ('+x.o+')':'')+' = '+vnd(p.p*x.q))});
+ cart.forEach(function(x){var p=P[x.id]||{n:x.id,p:0};l.push(line(p,x.q,x.o,p.p*x.q))});
  var tt=total();l.push('Tạm tính: '+vnd(tt)+(tt>=300000?' (miễn phí ship)':''));
  send(l.concat(cust(fm.elements)).join('\n'),to,$('#c-done'),fm,info(fm.elements),function(){cart=[];save(cart);badge()})}
 if(fm){fm.onsubmit=function(e){e.preventDefault();cartOrder('mail')};$('#c-zalo').onclick=function(){cartOrder('zalo')};$('#c-mess').onclick=function(){cartOrder('mess')}}
@@ -100,7 +111,7 @@ function openQV(id){var p=P[id];if(!p||!qv)return;var d=p.o&&p.o>p.p?Math.round(
  var opts=DO.map(function(v){return '<option>'+v+'</option>'}).join('');
  var thumbs=p.g.length>1?p.g.map(function(u,k){return '<button type="button" data-src="'+u+'"'+(k?'':' class="on"')+' aria-label="Ảnh '+(k+1)+'"><img src="'+u+'" alt=""></button>'}).join(''):'';
  $('.qv-body',qv).innerHTML='<div class="pd" data-pd><div class="gal"><div class="main"><img src="'+p.g[0]+'" alt="'+esc(p.n)+'"></div><div class="thumbs">'+thumbs+'</div></div>'+
- '<div class="pi"><span class="eyebrow">'+esc(p.c)+'</span><h2 class="qv-h">'+esc(p.n)+'</h2><div class="price"><b>'+vnd(p.p)+'</b>'+(d?'<s>'+vnd(p.o)+'</s><em>-'+d+'%</em>':'')+'</div>'+
+ '<div class="pi"><span class="eyebrow">'+esc(p.c)+'</span><h2 class="qv-h">'+esc(p.n)+'</h2><div class="price"><b>'+vnd(p.p)+unit(p)+'</b>'+(d?'<s>'+vnd(p.o)+'</s><em>-'+d+'%</em>':'')+'</div>'+
  '<table class="specs">'+p.s.map(function(r){return '<tr><th>'+r[0]+'</th><td>'+esc(r[1])+'</td></tr>'}).join('')+'</table>'+
  '<div class="buy"><div class="qty"><button type="button" data-d="-1" aria-label="Giảm">−</button><input class="qin" id="qv-qty" value="1" inputmode="numeric" aria-label="Số lượng"><button type="button" data-d="1" aria-label="Tăng">+</button></div><button class="btn o" type="button" data-add="'+id+'">Thêm vào giỏ</button></div>'+
  '<form class="oform" data-id="'+id+'"><h3>Đặt hàng nhanh</h3><div class="two"><input id="qv-ten" name="ten" placeholder="Họ tên" required autocomplete="name"><input id="qv-sdt" name="sdt" placeholder="Số điện thoại" required inputmode="tel" pattern="[0-9 +]{9,13}" autocomplete="tel"></div><input id="qv-dc" name="dc" placeholder="Địa chỉ nhận hàng" required autocomplete="street-address">'+(p.l?'<div class="two"><input id="qv-dol" name="dol" placeholder="Độ cận mắt trái" autocomplete="off"><input id="qv-dor" name="dor" placeholder="Độ cận mắt phải" autocomplete="off"></div>':'<input id="qv-gc" name="gc" placeholder="Ghi chú (không bắt buộc)">')+'<button class="btn" type="submit">Đặt hàng</button><div class="two"><button class="btn o" type="button" data-zalo>Gửi qua Zalo</button><button class="btn o" type="button" data-mess>Gửi qua Messenger</button></div><p class="note">Bấm Đặt hàng, đơn được gửi thẳng về SIHY. SIHY gọi xác nhận trước khi giao, thanh toán khi nhận hàng.</p><div class="done" hidden><b>Nội dung đơn hàng</b><pre></pre></div></form>'+
@@ -120,6 +131,40 @@ document.addEventListener('click',function(e){
  var m=e.target.closest('.oform [data-mess]');if(m){quickOrder(m.closest('form'),'mess');return}
  var z=e.target.closest('.oform [data-zalo]');if(z){quickOrder(z.closest('form'),'zalo')}});
 document.addEventListener('submit',function(e){var f=e.target;if(f.classList.contains('oform')){e.preventDefault();quickOrder(f,'mail')}});
+
+/* đặt lịch đo mắt: popup form, gửi email về SIHY như đơn hàng, khoá nút sau khi gửi */
+var bk=null;
+function pad(n){return (n<10?'0':'')+n}
+function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function bkSlots(){var f=$('#bk-form'),dv=f.ngay.value,sel=f.gio,now=new Date(),today=dv===ymd(now),cur=sel.value,h='<option value="">Chọn giờ</option>';
+ for(var m=8*60;m<=21*60;m+=30){var t=pad(Math.floor(m/60))+':'+pad(m%60);if(today&&m<=now.getHours()*60+now.getMinutes()+30)continue;h+='<option'+(t===cur?' selected':'')+'>'+t+'</option>'}
+ sel.innerHTML=h;if(sel.options.length<2)sel.innerHTML='<option value="">Hết giờ hôm nay, chọn ngày khác</option>'}
+function bkBuild(){bk=document.createElement('div');bk.className='qv bk';bk.id='bk';bk.hidden=true;
+ bk.innerHTML='<div class="pn" role="dialog" aria-modal="true" aria-labelledby="bk-h"><button class="icon-btn qv-x" type="button" data-close aria-label="Đóng"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>'+
+ '<span class="eyebrow">Miễn phí · Máy đo Huviz Hàn Quốc</span><h2 class="qv-h" id="bk-h">Đặt lịch đo mắt</h2><p class="note">SIHY Luxury Lens – 111 Trần Khắc Chân, Phường Tân Định, Quận 1. Mở cửa 08:00 – 21:30 mỗi ngày.</p>'+
+ '<form class="oform" id="bk-form" novalidate><input name="ten" placeholder="Họ tên" required autocomplete="name" aria-label="Họ tên"><input name="sdt" type="tel" placeholder="Số điện thoại" required inputmode="tel" pattern="0[0-9]{9}" autocomplete="tel" aria-label="Số điện thoại">'+
+ '<div class="two"><label class="bk-l">Ngày đo<input name="ngay" type="date" required></label><label class="bk-l">Giờ đo<select name="gio" required></select></label></div>'+
+ '<button class="btn" type="submit">Đặt lịch</button><p class="note">SIHY sẽ gọi lại để xác nhận lịch hẹn.</p><div class="done" hidden></div></form></div>';
+ document.body.appendChild(bk);var f=$('#bk-form'),d=new Date(),mx=new Date();mx.setDate(mx.getDate()+60);
+ f.ngay.min=ymd(d);f.ngay.max=ymd(mx);f.ngay.value=ymd(d);bkSlots();f.ngay.addEventListener('change',bkSlots);
+ bk.addEventListener('click',function(e){if(e.target===bk||e.target.closest('[data-close]'))bkClose()});
+ document.addEventListener('keydown',function(e){if(e.key==='Escape'&&bk&&!bk.hidden)bkClose()});
+ f.addEventListener('submit',function(e){e.preventDefault();if(f._locked)return;
+  var sdt=f.sdt.value.replace(/[\s.+-]/g,'');if(/^84/.test(sdt))sdt='0'+sdt.slice(2);f.sdt.value=sdt;
+  if(!f.reportValidity())return;
+  var btn=$('button[type=submit]',f),box=$('.done',f),ten=f.ten.value.trim(),p=f.ngay.value.split('-'),ngay=p[2]+'/'+p[1]+'/'+p[0],gio=f.gio.value;
+  f._locked=true;btn.disabled=true;btn.textContent='Đang gửi…';$$('input,select',f).forEach(function(x){x.readOnly=true;if(x.tagName==='SELECT')x.disabled=true});
+  var body={_subject:'Đặt lịch đo mắt SIHY – '+ten+' – '+sdt+' – '+gio+' '+ngay,_template:'box',_captcha:'false','Loại':'ĐẶT LỊCH ĐO MẮT','Khách hàng':ten,'Số điện thoại':sdt,'Ngày đo':ngay,'Giờ đo':gio,'Trang đặt':location.href};
+  sheet({loai:'lich',ten:ten,sdt:sdt,ngay:ngay,gio:gio}).then(function(ok){if(ok)return{ok:true};
+  return fetch(MAIL,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)})
+  .then(function(r){return r.json().catch(function(){return{}}).then(function(j){return{ok:r.ok&&String(j.success)!=='false',m:j.message||('HTTP '+r.status)}})}).catch(function(e){return{ok:false,m:'Lỗi kết nối: '+(e&&e.message||'')}})})
+  .then(function(res){var ok=res.ok;box.hidden=false;
+   if(ok){btn.textContent='Đã đặt lịch';box.innerHTML='<p class="st ok"><b>Đặt lịch thành công!</b> Hẹn '+esc(ten)+' lúc <b>'+gio+' ngày '+ngay+'</b> tại SIHY, 111 Trần Khắc Chân, Quận 1. SIHY sẽ gọi số '+esc(sdt)+' để xác nhận.</p>';toast('Đặt lịch thành công')}
+   else{f._locked=false;btn.disabled=false;btn.textContent='Gửi lại';$$('input,select',f).forEach(function(x){x.readOnly=false;x.disabled=false});
+    box.innerHTML='<p class="st bad">Chưa gửi được lịch hẹn. Vui lòng thử lại hoặc gọi <a href="tel:'+ZALO+'">0862 626 488</a>.<br><small>Mã lỗi: '+esc(res.m)+'</small></p>'}})})}
+function bkOpen(){if(!bk)bkBuild();else if(!$('#bk-form')._locked)bkSlots();bk.hidden=false;document.body.style.overflow='hidden';var f=$('#bk-form');if(!f._locked)setTimeout(function(){f.ten.focus()},50)}
+function bkClose(){bk.hidden=true;document.body.style.overflow=''}
+$$('[data-booking]').forEach(function(a){a.addEventListener('click',function(e){if(e.ctrlKey||e.metaKey||e.shiftKey)return;e.preventDefault();bkOpen()})});
 badge();
 })();
 
