@@ -1,0 +1,48 @@
+name: Đồng bộ từ sihylens.vn và đăng sihy.vn
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  dong-bo:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lấy nội dung mới nhất từ repo sihy
+        run: |
+          git clone --depth 1 https://github.com/lensviethan/sihy /tmp/sihy
+          rsync -a --delete \
+            --exclude .git --exclude .github --exclude tools \
+            --exclude CNAME --exclude README.md --exclude .nojekyll \
+            /tmp/sihy/ ./
+          python3 .github/scripts/doi-ten-mien.py .
+          echo sihy.vn > CNAME; touch .nojekyll
+      - name: Lưu thay đổi
+        id: luu
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "doi=0" >> $GITHUB_OUTPUT; else
+            git commit -m "Đồng bộ nội dung từ sihylens.vn"; git push; echo "doi=1" >> $GITHUB_OUTPUT; fi
+      - uses: actions/configure-pages@v5
+        if: steps.luu.outputs.doi == '1' || github.event_name != 'schedule'
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.luu.outputs.doi == '1' || github.event_name != 'schedule'
+        with:
+          path: .
+      - id: deployment
+        if: steps.luu.outputs.doi == '1' || github.event_name != 'schedule'
+        uses: actions/deploy-pages@v4
